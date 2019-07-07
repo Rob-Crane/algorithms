@@ -9,7 +9,4 @@ set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
 set(sources src/mult_gradeschool.cpp src/test_mult_gradeschool.cpp)
 
-
-#include_directories(/usr/local/include)
-
 add_executable(test_gradeschool ${sources})
