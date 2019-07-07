@@ -7,9 +7,6 @@ add_definitions(-std=c++11)
 set(CXX_FLAGS "-Wall")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
-set(sources src/mult_gradeschool.cpp src/test_mult_gradeschool.cpp)
+set(gradeschool_src src/mult_common.cpp src/mult_gradeschool.cpp src/test_mult_gradeschool.cpp)
 
-
-#include_directories(/usr/local/include)
-
-add_executable(test_gradeschool ${sources})
+add_executable(test_gradeschool ${gradeschool_src})
