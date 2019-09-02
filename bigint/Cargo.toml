@@ -1,5 +1,5 @@
 [package]
-name = "karatsuba"
+name = "bigint"
 version = "0.1.0"
 authors = ["rob-crane <28930454+Rob-Crane@users.noreply.github.com>"]
 edition = "2018"
