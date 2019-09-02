@@ -3,9 +3,8 @@ use std::iter::Iterator;
 use std::iter::Sum;
 use std::ops::Add;
 use std::str::FromStr;
-use std::slice::Iter;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Sign {
     Positive,
     Negative,
@@ -23,7 +22,7 @@ impl fmt::Display for BigIntegerError {
 }
 
 pub struct BigInteger {
-    pub digits: Vec<u32>,
+    pub digits: Vec<u8>,
     pub sign: Sign,
 }
 
@@ -36,102 +35,134 @@ impl BigInteger {
     }
 }
 
+impl fmt::Display for BigInteger {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+
+        let mut res = String::new();
+        if self.sign == Sign::Negative {
+            res.push('-');
+        }
+        for i in self.digits.iter().rev() {
+            res.push((*i+48) as char);
+        }
+        write!(f, "{}", res)
+    }
+}
+
 impl<'a> Sum<&'a BigInteger> for BigInteger {
-    fn sum<I>(iter: I) -> BigInteger
+    fn sum<I>(_iter: I) -> BigInteger
     where
         I: Iterator<Item = &'a BigInteger>,
     {
         let total = BigInteger::zero();
-        //let mut digit_iters: Vec<Iter<u32>> = iter.map(|x| x.digits.iter()).collect();
-        //let mut input_exhaust = false;
-        //let mut place_sum : i32 = 0; // Running total for place.
-        //let mut carryover : i32 = 0; // Amount of next place.
-        //while !input_exhaust && carryover != 0 {
-            //let sign_iter : Iter<Sign> = iter.map(|x| x.sign);
-            //for i in &mut digit_iters { // zip here
-                //input_exhaust = true;
-                //let opt_digit = i.next();
-                //if opt_digit.is_some() {
-
-                    //input_exhaust = false;
-                    //println!("val: {}", opt_digit.unwrap());
-                //}
-            //}
-        //}
         total
     }
 }
 
-
-fn add_mag(a: &BigInteger, b: &BigInteger) -> BigInteger {
+fn add_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
     assert!(a.sign == b.sign);
-    let mut carryover: u32 = 0;
-    let mut a_iter = a.iter();
-    let mut b_iter = b.iter();
-    let mut opt_a = a_iter.next();
+    let mut carryover: u8 = 0;
+    let mut b_iter = b.digits.iter();
     let mut opt_b = b_iter.next();
-    let digits: Vec<u32> = Vec::new();
-    while (opt_a.is_some() || opt_b.is_some()) && carryover > 0 {
-        if let Some(a_digit) = opt_a {
-            carryover += a_digit;
-        }
+    for a_digit in a.digits.iter_mut() {
         if let Some(b_digit) = opt_b {
             carryover += b_digit;
+            opt_b = b_iter.next();
         }
-        digits.push(carryover % 10)
+        *a_digit += carryover % 10;
         carryover = carryover / 10;
-        opt_a = a_iter.next();
-        opt_b = b_iter.next();
     }
-    BigInteger {
-        digits,
-        sign: a.sign
+    while (opt_b.is_some()) || carryover > 0 {
+        if let Some(b_digit) = opt_b {
+            carryover += b_digit;
+            opt_b = b_iter.next();
+        }
+        a.digits.push(carryover % 10);
+        carryover = carryover / 10;
     }
+    a
 }
 
-fn mag_order(a: &BigInteger, b: &BigInteger) -> (&BigInteger, &BigInteger) {
-
-    let greater_mag: &BigInteger;
-    let smaller_mag: &BigInteger;
+fn mag_greater(a: &BigInteger, b: &BigInteger) -> bool {
     if a.digits.len() == b.digits.len() {
         if a.digits.last() > b.digits.last() {
-            greater_mag = &a;
-            smaller_mag = &b;
+            true
         } else {
-            greater_mag = &b;
-            smaller_mag = &a;
+            false
         }
-
-    }
-    else if (a.digits.len() > b.digits.len()) {
-        greater_mag = &a;
-        smaller_mag = &b;
+    } else if a.digits.len() > b.digits.len() {
+        true
     } else {
-        greater_mag = &b;
-        smaller_mag = &a;
+        false
     }
-    smaller_mag, greater_mag
 }
 
-fn diff_mag(a: &BigInteger, b: &BigInteger) -> BigInteger {
-    assert!(a.sign != b.sign);
-    let smaller, greater = mag_order(a, b);
+fn diff_op(g: u8, s: u8, borrow: &mut bool) -> u8 {
+    if *borrow {
+        if g == 0 {
+            9 - s
+        } else if (g - 1) < s {
+            *borrow = true;
+            g + 9 - s
+        } else {
+            *borrow = false;
+            g - 1 - s
+        }
+    } else {
+        if g < s {
+            *borrow = true;
+            g + 10 - s
+        } else {
+            g - s
+        }
+    }
+}
 
+fn get_digits(a_longer: bool, i: usize, a: &Vec<u8>, b: &Vec<u8>) -> (u8, u8) {
+    let (s, g);
+    if a_longer {
+        s = if i < b.len() { b[i] } else { 0 };
+        g = a[i];
+    } else {
+        s = if i < a.len() { a[i] } else { 0 };
+        g = b[i];
+    }
+    (s, g)
+}
+
+fn diff_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
+    assert!(a.sign != b.sign);
+    let a_longer = mag_greater(&a, b);
+    let mut borrowing = false;
+    let mut i = 0;
+    while i < a.digits.len() {
+        let (s, g) = get_digits(a_longer, i, &a.digits, &b.digits);
+        a.digits[i] = diff_op(g, s, &mut borrowing);
+        i += 1;
+    }
+    if !a_longer {
+        while i < b.digits.len() {
+            let (s, g) = get_digits(false, i, &a.digits, &b.digits);
+            a.digits.push(diff_op(g, s, &mut borrowing));
+            i += 1;
+        }
+        a.sign = b.sign;
+    }
+    // Trim leading zeros.
+    while (a.digits.len() > 1 && *a.digits.last().unwrap() == 0) {
+        a.digits.pop();
+    }
+    a
 }
 
 impl<'a> Add<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn add(self, other: &'a BigInteger) -> Self::Output {
-        let digits: Vec<u32>;
-        let sign: Sign;
-        if (self.sign == other.sign) {
-          digits = add_mag(self.digits, other.digits);
-          sign = self.sign;
+        if self.sign == other.sign {
+            add_mag(self, other)
+        } else {
+            diff_mag(self, other)
         }
-        if (self.sign != other.sign) {
-
-        }
-        self
     }
 }
 
@@ -143,16 +174,15 @@ impl FromStr for BigInteger {
     fn from_str(s: &str) -> Result {
         let mut ret_sign = Sign::Positive;
         let mut chars = s.chars().peekable();
-        //TODO understand the ref to char syntax
         if chars.peek() == Some(&'-') {
             ret_sign = Sign::Negative;
             chars.next();
         }
-        let mut digits: Vec<u32> = Vec::with_capacity(s.len());
-        for (i, c) in chars.enumerate() {
-            digits.push(c.to_digit(10).ok_or(BigIntegerError {
-                msg: "Invalid char!",
-            })?);
+        let mut digits: Vec<u8> = Vec::with_capacity(s.len());
+        for c in chars {
+            let d = c as u8 - 48;
+            assert!(d < 10, "Invalid input!"); 
+            digits.push(d);
         }
         digits.reverse();
         if digits.len() == 0 {
