@@ -111,7 +111,7 @@ impl<'a> Add<&'a BigInteger> for BigInteger {
         if self.sign == other.sign {
             add_mag(self, other)
         } else {
-            diff_mag(self, other, false)
+            diff_mag(self, other)
         }
     }
 }
@@ -123,7 +123,7 @@ impl<'a> Sub<&'a BigInteger> for BigInteger {
         if self.sign != other.sign {
             add_mag(self, other)
         } else {
-            diff_mag(self, other, true)
+            diff_mag(self, other)
         }
     }
 }
@@ -155,8 +155,7 @@ fn add_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
 // Conduct addition for BigIntegers with differing signs.
 // Resulting magnitude is the difference in magnitude of input.
 // The sign is the sign of the greater magnitude input.
-// invert_b inverts the sign of b.
-fn diff_mag(mut a: BigInteger, b: &BigInteger, invert_b: bool) -> BigInteger {
+fn diff_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
     let a_greater = mag_greater(&a, b);
     let mut borrowing = false;
     let mut i = 0; // Current place.
@@ -171,7 +170,7 @@ fn diff_mag(mut a: BigInteger, b: &BigInteger, invert_b: bool) -> BigInteger {
             a.digits.push(diff_op(s, g, &mut borrowing));
             i += 1;
         }
-        a.sign = if invert_b { !b.sign } else { b.sign };
+        a.sign = if a.sign == b.sign { !b.sign } else { b.sign };
     }
     // Trim leading zeros.
     while a.digits.len() > 1 && *a.digits.last().unwrap() == 0 {
@@ -232,5 +231,48 @@ fn diff_op(s: u8, g: u8, borrow: &mut bool) -> u8 {
         } else {
             g - s
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn positive_add_mag() {
+        let a : BigInteger =  FromStr::from_str("2011").unwrap();
+        let b : BigInteger = FromStr::from_str("12345").unwrap();
+        let res = add_mag(a, &b);
+        assert_eq!(res.digits, vec![6,5,3,4,1]);
+        assert_eq!(res.sign, Sign::Positive);
+    }
+
+    #[test]
+    fn negative_add_mag() {
+        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
+        let b : BigInteger = FromStr::from_str("12345").unwrap();
+        let res = add_mag(a, &b);
+        assert_eq!(res.digits, vec![6,5,3,4,1]);
+        assert_eq!(res.sign, Sign::Negative); // Retains sign of a.
+    }
+
+    #[test]
+    fn noinvert_diff_mag() {
+        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
+        let b : BigInteger = FromStr::from_str("12345").unwrap();
+        let res = diff_mag(a, &b, false);
+        assert_eq!(res.digits, vec![4,3,3,0,1]);
+        assert_eq!(res.sign, Sign::Positive); // Retains sign of a.
+    }
+
+    #[test]
+    fn invert_diff_mag() {
+        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
+        let b : BigInteger = FromStr::from_str("12345").unwrap();
+        let res = diff_mag(a, &b, true);
+        // TODO Is this invalid input?
+        assert_eq!(res.digits, vec![4,3,3,0,1]);
+        assert_eq!(res.sign, Sign::Negative); // Retains sign of a.
     }
 }
