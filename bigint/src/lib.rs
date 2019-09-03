@@ -39,6 +39,7 @@ pub struct BigInteger {
 }
 
 // Defines ordering of magnitude between two operands.
+// Value is the operand with the greater magnitude.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MagnitudeOrder {
     First,
@@ -172,23 +173,28 @@ fn add_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> Vec<u8> {
 // magnitude.
 fn diff_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> (Vec<u8>, MagnitudeOrder) {
     let mag_order = mag_greater(&a_digits, b_digits);
-    let mut borrowing = false;
-    let mut i = 0; // Current place.
-    while i < a_digits.len() {
-        let (s, g) = get_digits(mag_order, i, &a_digits, b_digits);
-        a_digits[i] = diff_op(s, g, &mut borrowing);
-        i += 1;
-    }
-    if mag_order == MagnitudeOrder::Second {
-        while i < b_digits.len() {
+    if mag_order == MagnitudeOrder::Equal {
+        a_digits.clear();
+        a_digits.push(0);
+    } else {
+        let mut borrowing = false;
+        let mut i = 0; // Current place.
+        while i < a_digits.len() {
             let (s, g) = get_digits(mag_order, i, &a_digits, b_digits);
-            a_digits.push(diff_op(s, g, &mut borrowing));
+            a_digits[i] = diff_op(s, g, &mut borrowing);
             i += 1;
         }
-    }
-    // Trim leading zeros.
-    while a_digits.len() > 1 && *a_digits.last().unwrap() == 0 {
-        a_digits.pop();
+        if mag_order == MagnitudeOrder::Second {
+            while i < b_digits.len() {
+                let (s, g) = get_digits(mag_order, i, &a_digits, b_digits);
+                a_digits.push(diff_op(s, g, &mut borrowing));
+                i += 1;
+            }
+        }
+        // Trim leading zeros.
+        while a_digits.len() > 1 && *a_digits.last().unwrap() == 0 {
+            a_digits.pop();
+        }
     }
     (a_digits, mag_order)
 }
@@ -255,7 +261,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_add_mag() {
+    fn add_mag_zero() {
         let a = vec![0];
         let b = vec![0];
         let res = add_mag(a, &b);
@@ -263,10 +269,142 @@ mod tests {
     }
 
     #[test]
-    fn nonzero_add_mag() {
+    fn add_mag_nonzero() {
         let a = vec![1,1,0,2];
         let b = vec![5,4,3,2,1];
         let res = add_mag(a, &b);
         assert_eq!(res, vec![6,5,3,4,1]);
+    }
+
+    #[test]
+    fn diff_mag_zero() {
+        let a = vec![1,1,0,2];
+        let b = vec![1,1,0,2];
+        let (ret, mag_order) = diff_mag(a, &b);
+        assert_eq!(ret, vec![0]);
+        assert_eq!(mag_order, MagnitudeOrder::Equal);
+    }
+
+    #[test]
+    fn diff_mag_first() {
+        let a = vec![0,1,1,0,2];
+        let b = vec![1,1,0,2];
+        let (ret, _) = diff_mag(a, &b);
+        assert_eq!(ret, vec![9,9,0,8,1]);
+    }
+
+    #[test]
+    fn diff_mag_second() {
+        let a = vec![1,1,0,2];
+        let b = vec![2,1,1,0,2];
+        let (ret, _) = diff_mag(a, &b);
+        assert_eq!(ret, vec![1,0,1,8,1]);
+    }
+
+    #[test]
+    fn mag_greater_equal() {
+        let a = vec![1,1,0,2];
+        let b = vec![1,1,0,2];
+        let ret = mag_greater(&a, &b);
+        assert_eq!(ret, MagnitudeOrder::Equal);
+    }
+
+    #[test]
+    fn mag_greater_first() {
+        let a = vec![0,1,1,0,2];
+        let b = vec![1,1,0,2];
+        let ret = mag_greater(&a, &b);
+        assert_eq!(ret, MagnitudeOrder::First);
+    }
+
+    #[test]
+    fn mag_greater_second() {
+        let a = vec![1,1,0,2];
+        let b = vec![0,1,1,0,2];
+        let ret = mag_greater(&a, &b);
+        assert_eq!(ret, MagnitudeOrder::Second);
+    }
+
+    #[test]
+    fn get_digits_first() {
+        let mag_order = MagnitudeOrder::First;
+        let i = 1;
+        let a = vec![1,2,3,4];
+        let b = vec![5,6,7];
+        let (s,g) = get_digits(mag_order, i, &a, &b);
+        assert_eq!(s, 6);
+        assert_eq!(g, 2);
+    }
+
+    #[test]
+    fn get_digits_second() {
+        let mag_order = MagnitudeOrder::Second;
+        let i = 1;
+        let a = vec![1,2,3,4];
+        let b = vec![5,6,7,8];
+        let (s,g) = get_digits(mag_order, i, &a, &b);
+        assert_eq!(s, 2);
+        assert_eq!(g, 6);
+    }
+
+    #[test]
+    fn get_digits_past_s() {
+        let mag_order = MagnitudeOrder::First;
+        let i = 3;
+        let a = vec![1,2,3,4];
+        let b = vec![5,6,7];
+        let (s,g) = get_digits(mag_order, i, &a, &b);
+        assert_eq!(s, 0);
+        assert_eq!(g, 4);
+    }
+
+    #[test]
+    fn diff_op_simple() {
+        let g = 9;
+        let s = 6;
+        let mut borrow = false;
+        let ret = diff_op(s, g, &mut borrow);
+        assert_eq!(ret, 3);
+        assert_eq!(borrow, false);
+    }
+
+    #[test]
+    fn diff_op_need_borrow() {
+        let s = 9;
+        let g = 6;
+        let mut borrow = false;
+        let ret = diff_op(s, g, &mut borrow);
+        assert_eq!(ret, 7);
+        assert_eq!(borrow, true);
+    }
+
+    #[test]
+    fn diff_op_had_borrow() {
+        let g = 9;
+        let s = 6;
+        let mut borrow = true;
+        let ret = diff_op(s, g, &mut borrow);
+        assert_eq!(ret, 2);
+        assert_eq!(borrow, false);
+    }
+
+    #[test]
+    fn diff_op_had_borrow_and_need() {
+        let g = 6;
+        let s = 6;
+        let mut borrow = true;
+        let ret = diff_op(s, g, &mut borrow);
+        assert_eq!(ret, 9);
+        assert_eq!(borrow, true);
+    }
+
+    #[test]
+    fn diff_op_zero() {
+        let g = 6;
+        let s = 6;
+        let mut borrow = false;
+        let ret = diff_op(s, g, &mut borrow);
+        assert_eq!(ret, 0);
+        assert_eq!(borrow, false);
     }
 }
