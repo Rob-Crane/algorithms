@@ -108,32 +108,47 @@ impl<'a> Sum<&'a BigInteger> for BigInteger {
 impl<'a> Add<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn add(self, other: &'a BigInteger) -> Self::Output {
-        if self.sign == other.sign {
-            add_mag(self, other)
-        } else {
-            diff_mag(self, other)
-        }
+        add_op(self, other, false)
     }
 }
 
 impl<'a> Sub<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn sub(self, other: &'a BigInteger) -> Self::Output {
-
-        if self.sign != other.sign {
-            add_mag(self, other)
-        } else {
-            diff_mag(self, other)
-        }
+        add_op(self, other, true)
     }
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MagnitudeOrder {
+    First,
+    Second,
+    Equal
+}
+
+fn add_op(mut a: BigInteger, b: &BigInteger, invert_b: bool) -> BigInteger {
+    let same_sign = if invert_b {a.sign != b.sign} else {a.sign == b.sign};
+    if same_sign {
+        a.digits = add_mag(a.digits, &b.digits);
+    } else {
+        let (digits, mag_order) = diff_mag(a.digits, &b.digits);
+        a.digits = digits;
+        if mag_order == MagnitudeOrder::Second {
+            a.sign = !a.sign;
+        } else if mag_order == MagnitudeOrder::Equal {
+            a.sign = Sign::Positive;
+        }
+    }
+    a
+}
+
 // For BigIntegers with matching signs, add the magnitudes.
-fn add_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
+fn add_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> Vec<u8> {
     let mut carryover: u8 = 0;
-    let mut b_iter = b.digits.iter();
+    let mut b_iter = b_digits.iter();
     let mut opt_b = b_iter.next();
-    for a_digit in a.digits.iter_mut() {
+    for a_digit in a_digits.iter_mut() {
         if let Some(b_digit) = opt_b {
             carryover += b_digit;
             opt_b = b_iter.next();
@@ -146,59 +161,60 @@ fn add_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
             carryover += b_digit;
             opt_b = b_iter.next();
         }
-        a.digits.push(carryover % 10);
+        a_digits.push(carryover % 10);
         carryover = carryover / 10;
     }
-    a
+    a_digits
 }
 
-// Conduct addition for BigIntegers with differing signs.
-// Resulting magnitude is the difference in magnitude of input.
-// The sign is the sign of the greater magnitude input.
-fn diff_mag(mut a: BigInteger, b: &BigInteger) -> BigInteger {
-    let a_greater = mag_greater(&a, b);
+// Compute the difference in magnitude of a_digits and b_digits.  Return
+// difference and flag indicating if a_digits had greater
+// magnitude.
+fn diff_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> (Vec<u8>, MagnitudeOrder) {
+    let mag_order = mag_greater(&a_digits, b_digits);
     let mut borrowing = false;
     let mut i = 0; // Current place.
-    while i < a.digits.len() {
-        let (s, g) = get_digits(a_greater, i, &a.digits, &b.digits);
-        a.digits[i] = diff_op(s, g, &mut borrowing);
+    while i < a_digits.len() {
+        let (s, g) = get_digits(mag_order, i, &a_digits, b_digits);
+        a_digits[i] = diff_op(s, g, &mut borrowing);
         i += 1;
     }
-    if !a_greater {
-        while i < b.digits.len() {
-            let (s, g) = get_digits(false, i, &a.digits, &b.digits);
-            a.digits.push(diff_op(s, g, &mut borrowing));
+    if mag_order == MagnitudeOrder::Second {
+        while i < b_digits.len() {
+            let (s, g) = get_digits(mag_order, i, &a_digits, b_digits);
+            a_digits.push(diff_op(s, g, &mut borrowing));
             i += 1;
         }
-        a.sign = if a.sign == b.sign { !b.sign } else { b.sign };
     }
     // Trim leading zeros.
-    while a.digits.len() > 1 && *a.digits.last().unwrap() == 0 {
-        a.digits.pop();
+    while a_digits.len() > 1 && *a_digits.last().unwrap() == 0 {
+        a_digits.pop();
     }
-    a
+    (a_digits, mag_order)
 }
 
-// True if a has greater magnitude than b.
-fn mag_greater(a: &BigInteger, b: &BigInteger) -> bool {
-    if a.digits.len() == b.digits.len() {
-        if a.digits.last() > b.digits.last() {
-            true
-        } else {
-            false
+fn mag_greater(a_digits: &Vec<u8>, b_digits: &Vec<u8>) -> MagnitudeOrder {
+    if a_digits.len() == b_digits.len() {
+        for (a_digit, b_digit) in a_digits.iter().zip(b_digits.iter()) {
+            if a_digit > b_digit {
+                return MagnitudeOrder::First
+            } else if b_digit > a_digit {
+                return MagnitudeOrder::Second
+            }
         }
-    } else if a.digits.len() > b.digits.len() {
-        true
+        MagnitudeOrder::Equal
+    } else if a_digits.len() > b_digits.len() {
+        MagnitudeOrder::First
     } else {
-        false
+        MagnitudeOrder::Second
     }
 }
 
 // Get digits occupying ith place.  Return ordering based on a_greater.
 // First value returned is digit from smaller magnitude BigInteger.
-fn get_digits(a_greater: bool, i: usize, a: &Vec<u8>, b: &Vec<u8>) -> (u8, u8) {
+fn get_digits(mag_order: MagnitudeOrder, i: usize, a: &Vec<u8>, b: &Vec<u8>) -> (u8, u8) {
     let (s, g);
-    if a_greater {
+    if mag_order == MagnitudeOrder::First {
         s = if i < b.len() { b[i] } else { 0 };
         g = a[i];
     } else {
@@ -237,42 +253,20 @@ fn diff_op(s: u8, g: u8, borrow: &mut bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::str::FromStr;
 
     #[test]
-    fn positive_add_mag() {
-        let a : BigInteger =  FromStr::from_str("2011").unwrap();
-        let b : BigInteger = FromStr::from_str("12345").unwrap();
+    fn zero_add_mag() {
+        let a = vec![0];
+        let b = vec![0];
         let res = add_mag(a, &b);
-        assert_eq!(res.digits, vec![6,5,3,4,1]);
-        assert_eq!(res.sign, Sign::Positive);
+        assert_eq!(res, vec![0]);
     }
 
     #[test]
-    fn negative_add_mag() {
-        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
-        let b : BigInteger = FromStr::from_str("12345").unwrap();
+    fn nonzero_add_mag() {
+        let a = vec![1,1,0,2];
+        let b = vec![5,4,3,2,1];
         let res = add_mag(a, &b);
-        assert_eq!(res.digits, vec![6,5,3,4,1]);
-        assert_eq!(res.sign, Sign::Negative); // Retains sign of a.
-    }
-
-    #[test]
-    fn noinvert_diff_mag() {
-        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
-        let b : BigInteger = FromStr::from_str("12345").unwrap();
-        let res = diff_mag(a, &b, false);
-        assert_eq!(res.digits, vec![4,3,3,0,1]);
-        assert_eq!(res.sign, Sign::Positive); // Retains sign of a.
-    }
-
-    #[test]
-    fn invert_diff_mag() {
-        let a : BigInteger =  FromStr::from_str("-2011").unwrap();
-        let b : BigInteger = FromStr::from_str("12345").unwrap();
-        let res = diff_mag(a, &b, true);
-        // TODO Is this invalid input?
-        assert_eq!(res.digits, vec![4,3,3,0,1]);
-        assert_eq!(res.sign, Sign::Negative); // Retains sign of a.
+        assert_eq!(res, vec![6,5,3,4,1]);
     }
 }
