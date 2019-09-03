@@ -38,12 +38,36 @@ pub struct BigInteger {
     pub sign: Sign,
 }
 
+// Defines ordering of magnitude between two operands.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MagnitudeOrder {
+    First,
+    Second,
+    Equal
+}
+
 impl BigInteger {
     fn zero() -> BigInteger {
         BigInteger {
             digits: vec![0],
             sign: Sign::Positive,
         }
+    }
+
+    fn add_op(mut self, other: &BigInteger, invert_other: bool) -> BigInteger {
+        let same_sign = if invert_other {self.sign != other.sign} else {self.sign == other.sign};
+        if same_sign {
+            self.digits = add_mag(self.digits, &other.digits);
+        } else {
+            let (digits, mag_order) = diff_mag(self.digits, &other.digits);
+            self.digits = digits;
+            if mag_order == MagnitudeOrder::Second {
+                self.sign = !self.sign;
+            } else if mag_order == MagnitudeOrder::Equal {
+                self.sign = Sign::Positive;
+            }
+        }
+        self
     }
 }
 
@@ -108,39 +132,15 @@ impl<'a> Sum<&'a BigInteger> for BigInteger {
 impl<'a> Add<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn add(self, other: &'a BigInteger) -> Self::Output {
-        add_op(self, other, false)
+        self.add_op(other, false)
     }
 }
 
 impl<'a> Sub<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn sub(self, other: &'a BigInteger) -> Self::Output {
-        add_op(self, other, true)
+        self.add_op(other, true)
     }
-}
-
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum MagnitudeOrder {
-    First,
-    Second,
-    Equal
-}
-
-fn add_op(mut a: BigInteger, b: &BigInteger, invert_b: bool) -> BigInteger {
-    let same_sign = if invert_b {a.sign != b.sign} else {a.sign == b.sign};
-    if same_sign {
-        a.digits = add_mag(a.digits, &b.digits);
-    } else {
-        let (digits, mag_order) = diff_mag(a.digits, &b.digits);
-        a.digits = digits;
-        if mag_order == MagnitudeOrder::Second {
-            a.sign = !a.sign;
-        } else if mag_order == MagnitudeOrder::Equal {
-            a.sign = Sign::Positive;
-        }
-    }
-    a
 }
 
 // For BigIntegers with matching signs, add the magnitudes.
