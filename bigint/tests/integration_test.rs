@@ -36,8 +36,9 @@ fn negative_add() {
 
 #[test]
 fn add_to_zero() {
-    let a : BigInteger =  FromStr::from_str("9876").unwrap();
-    let b : BigInteger = FromStr::from_str("-9876").unwrap();
+    let a : BigInteger =  FromStr::from_str("-9876").unwrap();
+    let b : BigInteger = FromStr::from_str("9876").unwrap();
     let res = a + &b;
     assert_eq!(res.digits, vec![0]);
+    assert_eq!(res.sign, Sign::Positive);
 }

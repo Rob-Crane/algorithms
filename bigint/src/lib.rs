@@ -1,6 +1,5 @@
 use std::fmt;
-use std::iter::Iterator;
-use std::iter::Sum;
+use std::iter;
 use std::ops::Add;
 use std::ops::Not;
 use std::ops::Sub;
@@ -28,11 +27,12 @@ impl Not for Sign {
     fn not(self) -> Self::Output {
         match self {
             Sign::Positive => Sign::Negative,
-            Sign::Negative => Sign::Positive
+            Sign::Negative => Sign::Positive,
         }
     }
 }
 
+#[derive(Clone)]
 pub struct BigInteger {
     pub digits: Vec<u8>,
     pub sign: Sign,
@@ -44,7 +44,7 @@ pub struct BigInteger {
 pub enum MagnitudeOrder {
     First,
     Second,
-    Equal
+    Equal,
 }
 
 impl BigInteger {
@@ -56,7 +56,11 @@ impl BigInteger {
     }
 
     fn add_op(mut self, other: &BigInteger, invert_other: bool) -> BigInteger {
-        let same_sign = if invert_other {self.sign != other.sign} else {self.sign == other.sign};
+        let same_sign = if invert_other {
+            self.sign != other.sign
+        } else {
+            self.sign == other.sign
+        };
         if same_sign {
             self.digits = add_mag(self.digits, &other.digits);
         } else {
@@ -67,6 +71,44 @@ impl BigInteger {
             } else if mag_order == MagnitudeOrder::Equal {
                 self.sign = Sign::Positive;
             }
+        }
+        self.trim_zeros()
+    }
+
+    fn scale_op(mut self, c: u8) -> BigInteger {
+        let mut carryover: u8 = 0;
+        for digit in self.digits.iter_mut() {
+            let place_result = *digit * c + carryover;
+            *digit = place_result % 10;
+            carryover = place_result / 10;
+        }
+        if carryover != 0 {
+            self.digits.push(carryover);
+        }
+        self.trim_zeros()
+    }
+
+    fn exp_op(mut self, e: usize) -> BigInteger {
+        self.digits.reserve(e);
+        self.digits.splice(0..0, iter::repeat(0).take(e));
+        self
+    }
+
+    fn gradeschool_op(&self, other: &Vec<u8>) -> BigInteger {
+        other
+            .iter()
+            .enumerate()
+            .map(|(i, c)| self.clone().scale_op(*c).exp_op(i))
+            .sum()
+    }
+
+    fn trim_zeros(mut self) -> BigInteger {
+        // Trim leading zeros.
+        while self.digits.len() > 1 && *self.digits.last().unwrap() == 0 {
+            self.digits.pop();
+        }
+        if self.digits.len() == 1 && *self.digits.last().unwrap() == 0 {
+            self.sign = Sign::Positive;
         }
         self
     }
@@ -117,14 +159,14 @@ impl FromStr for BigInteger {
     }
 }
 
-impl<'a> Sum<&'a BigInteger> for BigInteger {
+impl iter::Sum<BigInteger> for BigInteger {
     fn sum<I>(iter: I) -> BigInteger
     where
-        I: Iterator<Item = &'a BigInteger>,
+        I: iter::Iterator<Item = BigInteger>,
     {
         let mut total = BigInteger::zero();
         for i in iter {
-            total = total + i;
+            total = total + &i;
         }
         total
     }
@@ -191,10 +233,6 @@ fn diff_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> (Vec<u8>, MagnitudeOrd
                 i += 1;
             }
         }
-        // Trim leading zeros.
-        while a_digits.len() > 1 && *a_digits.last().unwrap() == 0 {
-            a_digits.pop();
-        }
     }
     (a_digits, mag_order)
 }
@@ -203,9 +241,9 @@ fn mag_greater(a_digits: &Vec<u8>, b_digits: &Vec<u8>) -> MagnitudeOrder {
     if a_digits.len() == b_digits.len() {
         for (a_digit, b_digit) in a_digits.iter().zip(b_digits.iter()) {
             if a_digit > b_digit {
-                return MagnitudeOrder::First
+                return MagnitudeOrder::First;
             } else if b_digit > a_digit {
-                return MagnitudeOrder::Second
+                return MagnitudeOrder::Second;
             }
         }
         MagnitudeOrder::Equal
@@ -270,16 +308,73 @@ mod tests {
 
     #[test]
     fn add_mag_nonzero() {
-        let a = vec![1,1,0,2];
-        let b = vec![5,4,3,2,1];
+        let a = vec![1, 1, 0, 2];
+        let b = vec![5, 4, 3, 2, 1];
         let res = add_mag(a, &b);
-        assert_eq!(res, vec![6,5,3,4,1]);
+        assert_eq!(res, vec![6, 5, 3, 4, 1]);
+    }
+
+    #[test]
+    fn scale_zero() {
+        let a: BigInteger = FromStr::from_str("-2011").unwrap();
+        let res = a.scale_op(0);
+        assert_eq!(res.digits, vec![0]);
+        assert_eq!(res.sign, Sign::Positive);
+    }
+
+    #[test]
+    fn scale_nonzero() {
+        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let res = a.scale_op(9);
+        assert_eq!(res.digits, vec![9, 9, 0, 8, 1]);
+    }
+
+    #[test]
+    fn exp_zero() {
+        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let res = a.exp_op(0);
+        assert_eq!(res.digits, vec![1, 1, 0, 2]);
+        assert_eq!(res.sign, Sign::Positive);
+    }
+
+    #[test]
+    fn exp_nonzero() {
+        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let res = a.exp_op(2);
+        assert_eq!(res.digits, vec![0, 0, 1, 1, 0, 2]);
+        assert_eq!(res.sign, Sign::Positive);
+    }
+
+    #[test]
+    fn gradeschool_nonzero() {
+        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let b = vec![3, 2, 1];
+        let res = a.gradeschool_op(&b);
+        assert_eq!(res.digits, vec![3, 5, 3, 7, 4, 2]);
+    }
+
+    #[test]
+    fn gradeschool_negative() {
+        let a: BigInteger = FromStr::from_str("-2011").unwrap();
+        let b = vec![3, 2, 1];
+        let res = a.gradeschool_op(&b);
+        assert_eq!(res.digits, vec![3, 5, 3, 7, 4, 2]);
+        assert_eq!(res.sign, Sign::Negative);
+    }
+
+    #[test]
+    fn gradeschool_zero() {
+        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let b = vec![0];
+        let res = a.gradeschool_op(&b);
+        assert_eq!(res.digits, vec![0]);
+        assert_eq!(res.sign, Sign::Positive);
     }
 
     #[test]
     fn diff_mag_zero() {
-        let a = vec![1,1,0,2];
-        let b = vec![1,1,0,2];
+        let a = vec![1, 1, 0, 2];
+        let b = vec![1, 1, 0, 2];
         let (ret, mag_order) = diff_mag(a, &b);
         assert_eq!(ret, vec![0]);
         assert_eq!(mag_order, MagnitudeOrder::Equal);
@@ -287,40 +382,40 @@ mod tests {
 
     #[test]
     fn diff_mag_first() {
-        let a = vec![0,1,1,0,2];
-        let b = vec![1,1,0,2];
+        let a = vec![0, 1, 1, 0, 2];
+        let b = vec![1, 1, 0, 2];
         let (ret, _) = diff_mag(a, &b);
-        assert_eq!(ret, vec![9,9,0,8,1]);
+        assert_eq!(ret, vec![9, 9, 0, 8, 1]);
     }
 
     #[test]
     fn diff_mag_second() {
-        let a = vec![1,1,0,2];
-        let b = vec![2,1,1,0,2];
+        let a = vec![1, 1, 0, 2];
+        let b = vec![2, 1, 1, 0, 2];
         let (ret, _) = diff_mag(a, &b);
-        assert_eq!(ret, vec![1,0,1,8,1]);
+        assert_eq!(ret, vec![1, 0, 1, 8, 1]);
     }
 
     #[test]
     fn mag_greater_equal() {
-        let a = vec![1,1,0,2];
-        let b = vec![1,1,0,2];
+        let a = vec![1, 1, 0, 2];
+        let b = vec![1, 1, 0, 2];
         let ret = mag_greater(&a, &b);
         assert_eq!(ret, MagnitudeOrder::Equal);
     }
 
     #[test]
     fn mag_greater_first() {
-        let a = vec![0,1,1,0,2];
-        let b = vec![1,1,0,2];
+        let a = vec![0, 1, 1, 0, 2];
+        let b = vec![1, 1, 0, 2];
         let ret = mag_greater(&a, &b);
         assert_eq!(ret, MagnitudeOrder::First);
     }
 
     #[test]
     fn mag_greater_second() {
-        let a = vec![1,1,0,2];
-        let b = vec![0,1,1,0,2];
+        let a = vec![1, 1, 0, 2];
+        let b = vec![0, 1, 1, 0, 2];
         let ret = mag_greater(&a, &b);
         assert_eq!(ret, MagnitudeOrder::Second);
     }
@@ -329,9 +424,9 @@ mod tests {
     fn get_digits_first() {
         let mag_order = MagnitudeOrder::First;
         let i = 1;
-        let a = vec![1,2,3,4];
-        let b = vec![5,6,7];
-        let (s,g) = get_digits(mag_order, i, &a, &b);
+        let a = vec![1, 2, 3, 4];
+        let b = vec![5, 6, 7];
+        let (s, g) = get_digits(mag_order, i, &a, &b);
         assert_eq!(s, 6);
         assert_eq!(g, 2);
     }
@@ -340,9 +435,9 @@ mod tests {
     fn get_digits_second() {
         let mag_order = MagnitudeOrder::Second;
         let i = 1;
-        let a = vec![1,2,3,4];
-        let b = vec![5,6,7,8];
-        let (s,g) = get_digits(mag_order, i, &a, &b);
+        let a = vec![1, 2, 3, 4];
+        let b = vec![5, 6, 7, 8];
+        let (s, g) = get_digits(mag_order, i, &a, &b);
         assert_eq!(s, 2);
         assert_eq!(g, 6);
     }
@@ -351,9 +446,9 @@ mod tests {
     fn get_digits_past_s() {
         let mag_order = MagnitudeOrder::First;
         let i = 3;
-        let a = vec![1,2,3,4];
-        let b = vec![5,6,7];
-        let (s,g) = get_digits(mag_order, i, &a, &b);
+        let a = vec![1, 2, 3, 4];
+        let b = vec![5, 6, 7];
+        let (s, g) = get_digits(mag_order, i, &a, &b);
         assert_eq!(s, 0);
         assert_eq!(g, 4);
     }
