@@ -1,6 +1,8 @@
+use std::cmp;
 use std::fmt;
 use std::iter;
 use std::ops::Add;
+use std::ops::Mul;
 use std::ops::Not;
 use std::ops::Sub;
 use std::str::FromStr;
@@ -75,38 +77,8 @@ impl BigInteger {
         self.trim_zeros()
     }
 
-    fn scale_op(mut self, c: u8) -> BigInteger {
-        let mut carryover: u8 = 0;
-        for digit in self.digits.iter_mut() {
-            let place_result = *digit * c + carryover;
-            *digit = place_result % 10;
-            carryover = place_result / 10;
-        }
-        if carryover != 0 {
-            self.digits.push(carryover);
-        }
-        self.trim_zeros()
-    }
-
-    fn exp_op(mut self, e: usize) -> BigInteger {
-        self.digits.reserve(e);
-        self.digits.splice(0..0, iter::repeat(0).take(e));
-        self
-    }
-
-    fn gradeschool_op(&self, other: &Vec<u8>) -> BigInteger {
-        other
-            .iter()
-            .enumerate()
-            .map(|(i, c)| self.clone().scale_op(*c).exp_op(i))
-            .sum()
-    }
-
     fn trim_zeros(mut self) -> BigInteger {
-        // Trim leading zeros.
-        while self.digits.len() > 1 && *self.digits.last().unwrap() == 0 {
-            self.digits.pop();
-        }
+        self.digits = trim_zeros(self.digits);
         if self.digits.len() == 1 && *self.digits.last().unwrap() == 0 {
             self.sign = Sign::Positive;
         }
@@ -186,18 +158,26 @@ impl<'a> Sub<&'a BigInteger> for BigInteger {
     }
 }
 
-// For BigIntegers with matching signs, add the magnitudes.
+impl<'a> Mul<&'a BigInteger> for BigInteger {
+    type Output = Self;
+    fn mul(mut self, other: &'a BigInteger) -> Self::Output {
+        self.digits = multiply(&self.digits, &other.digits);
+        self
+    }
+}
+
 fn add_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> Vec<u8> {
     let mut carryover: u8 = 0;
     let mut b_iter = b_digits.iter();
     let mut opt_b = b_iter.next();
     for a_digit in a_digits.iter_mut() {
+        carryover += *a_digit;
         if let Some(b_digit) = opt_b {
             carryover += b_digit;
             opt_b = b_iter.next();
         }
-        *a_digit += carryover % 10;
-        carryover = carryover / 10;
+        *a_digit = carryover % 10;
+        carryover /= 10;
     }
     while (opt_b.is_some()) || carryover > 0 {
         if let Some(b_digit) = opt_b {
@@ -208,6 +188,70 @@ fn add_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> Vec<u8> {
         carryover = carryover / 10;
     }
     a_digits
+}
+
+fn gradeschool_multiply(a_digits: &[u8], b_digits: &[u8]) -> Vec<u8> {
+    let res = a_digits
+        .iter()
+        .enumerate()
+        .map(|(i, c)| exp(scale(Vec::<u8>::from(b_digits), *c), i))
+        .fold(vec![0], |a, v| add_mag(a, &v));
+    trim_zeros(res)
+}
+
+fn scale(mut digits: Vec<u8>, c: u8) -> Vec<u8> {
+    let mut carryover: u8 = 0;
+    for digit in digits.iter_mut() {
+        let place_result = *digit * c + carryover;
+        *digit = place_result % 10;
+        carryover = place_result / 10;
+    }
+    if carryover != 0 {
+        digits.push(carryover);
+    }
+    trim_zeros(digits)
+}
+
+fn exp(mut digits: Vec<u8>, e: usize) -> Vec<u8> {
+    digits.reserve(e);
+    digits.splice(0..0, iter::repeat(0).take(e));
+    digits
+}
+
+// Trim leading zeros.
+fn trim_zeros(mut digits: Vec<u8>) -> Vec<u8> {
+    while digits.len() > 1 && *digits.last().unwrap() == 0 {
+        digits.pop();
+    }
+    digits
+}
+
+const KARATSUBA_CUTOFF: usize = 20;
+
+// Initial step of karatsuba multiplication requires generation
+// of terms from multiplication of splits of input.
+fn multiply(a_digits: &[u8], b_digits: &[u8]) -> Vec<u8> {
+    let min_len = cmp::min(a_digits.len(), b_digits.len());
+    if min_len < KARATSUBA_CUTOFF {
+        return gradeschool_multiply(a_digits, b_digits);
+    }
+    let split = min_len / 2;
+    let a0 = Vec::<u8>::from(&a_digits[..split]); // Lower order
+    let a1 = Vec::<u8>::from(&a_digits[split..]); // Higher order
+    let b0 = Vec::<u8>::from(&b_digits[..split]); // Lower order
+    let b1 = Vec::<u8>::from(&b_digits[split..]); // Higher order
+
+    println!("Calling multiply with a: {:?} b: {:?}\na0: {:?} a1: {:?}\nb0: {:?} b1: {:?}\n", a_digits, b_digits, a0, a1, b0, b1);
+    println!("add_mag(b0, b1): {:?}", add_mag(b0.clone(), &b1));
+
+    let z0 = multiply(&a0, &b0);
+    let z2 = multiply(&a1, &b1);
+    let (z1, mag_order) = diff_mag(
+        multiply(&add_mag(a0, &a1), &add_mag(b0, &b1)),
+        &add_mag(z0.clone(), &z2),
+    );
+    assert_eq!(mag_order, MagnitudeOrder::First);
+    add_mag(add_mag(exp(z2, 2*split), &exp(z1, split)), &z0)
 }
 
 // Compute the difference in magnitude of a_digits and b_digits.  Return
@@ -239,7 +283,7 @@ fn diff_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> (Vec<u8>, MagnitudeOrd
 
 fn mag_greater(a_digits: &Vec<u8>, b_digits: &Vec<u8>) -> MagnitudeOrder {
     if a_digits.len() == b_digits.len() {
-        for (a_digit, b_digit) in a_digits.iter().zip(b_digits.iter()) {
+        for (a_digit, b_digit) in a_digits.iter().rev().zip(b_digits.iter().rev()) {
             if a_digit > b_digit {
                 return MagnitudeOrder::First;
             } else if b_digit > a_digit {
@@ -307,6 +351,14 @@ mod tests {
     }
 
     #[test]
+    fn add_mag_over() {
+        let a = vec![6];
+        let b = vec![5];
+        let res = add_mag(a, &b);
+        assert_eq!(res, vec![1,1]);
+    }
+
+    #[test]
     fn add_mag_nonzero() {
         let a = vec![1, 1, 0, 2];
         let b = vec![5, 4, 3, 2, 1];
@@ -316,59 +368,46 @@ mod tests {
 
     #[test]
     fn scale_zero() {
-        let a: BigInteger = FromStr::from_str("-2011").unwrap();
-        let res = a.scale_op(0);
-        assert_eq!(res.digits, vec![0]);
-        assert_eq!(res.sign, Sign::Positive);
+        let a = vec![1, 1, 0, 2];
+        let res = scale(a, 0);
+        assert_eq!(res, vec![0]);
     }
 
     #[test]
     fn scale_nonzero() {
-        let a: BigInteger = FromStr::from_str("2011").unwrap();
-        let res = a.scale_op(9);
-        assert_eq!(res.digits, vec![9, 9, 0, 8, 1]);
+        let a = vec![1, 1, 0, 2];
+        let res = scale(a, 9);
+        assert_eq!(res, vec![9, 9, 0, 8, 1]);
     }
 
     #[test]
     fn exp_zero() {
-        let a: BigInteger = FromStr::from_str("2011").unwrap();
-        let res = a.exp_op(0);
-        assert_eq!(res.digits, vec![1, 1, 0, 2]);
-        assert_eq!(res.sign, Sign::Positive);
+        let a = vec![1, 1, 0, 2];
+        let res = exp(a, 0);
+        assert_eq!(res, vec![1, 1, 0, 2]);
     }
 
     #[test]
     fn exp_nonzero() {
-        let a: BigInteger = FromStr::from_str("2011").unwrap();
-        let res = a.exp_op(2);
-        assert_eq!(res.digits, vec![0, 0, 1, 1, 0, 2]);
-        assert_eq!(res.sign, Sign::Positive);
+        let a = vec![1, 1, 0, 2];
+        let res = exp(a, 2);
+        assert_eq!(res, vec![0, 0, 1, 1, 0, 2]);
     }
 
     #[test]
     fn gradeschool_nonzero() {
-        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let a = vec![1, 1, 0, 2];
         let b = vec![3, 2, 1];
-        let res = a.gradeschool_op(&b);
-        assert_eq!(res.digits, vec![3, 5, 3, 7, 4, 2]);
-    }
-
-    #[test]
-    fn gradeschool_negative() {
-        let a: BigInteger = FromStr::from_str("-2011").unwrap();
-        let b = vec![3, 2, 1];
-        let res = a.gradeschool_op(&b);
-        assert_eq!(res.digits, vec![3, 5, 3, 7, 4, 2]);
-        assert_eq!(res.sign, Sign::Negative);
+        let res = gradeschool_multiply(&a, &b);
+        assert_eq!(res, vec![3, 5, 3, 7, 4, 2]);
     }
 
     #[test]
     fn gradeschool_zero() {
-        let a: BigInteger = FromStr::from_str("2011").unwrap();
+        let a = vec![1, 1, 0, 2];
         let b = vec![0];
-        let res = a.gradeschool_op(&b);
-        assert_eq!(res.digits, vec![0]);
-        assert_eq!(res.sign, Sign::Positive);
+        let res = gradeschool_multiply(&a, &b);
+        assert_eq!(res, vec![0]);
     }
 
     #[test]
@@ -501,5 +540,13 @@ mod tests {
         let ret = diff_op(s, g, &mut borrow);
         assert_eq!(ret, 0);
         assert_eq!(borrow, false);
+    }
+
+    #[test]
+    fn multiply_nonzero() {
+        let a = vec![4, 3, 2, 1];
+        let b = vec![8, 7, 6, 5];
+        let res = multiply(&a, &b);
+        assert_eq!(res, vec![2,5,6,6,0,0,7]);
     }
 }

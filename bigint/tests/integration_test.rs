@@ -42,3 +42,12 @@ fn add_to_zero() {
     assert_eq!(res.digits, vec![0]);
     assert_eq!(res.sign, Sign::Positive);
 }
+
+#[test]
+fn mul_positive() {
+    let a : BigInteger =  FromStr::from_str("1234").unwrap();
+    let b : BigInteger = FromStr::from_str("5678").unwrap();
+    let res = a * &b;
+    assert_eq!(res.digits, vec![2,5,6,6,0,0,7]);
+    assert_eq!(res.sign, Sign::Positive);
+}
