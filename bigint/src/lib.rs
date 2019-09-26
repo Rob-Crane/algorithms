@@ -162,7 +162,12 @@ impl<'a> Mul<&'a BigInteger> for BigInteger {
     type Output = Self;
     fn mul(mut self, other: &'a BigInteger) -> Self::Output {
         self.digits = multiply(&self.digits, &other.digits);
-        self
+        self.sign = if self.sign == other.sign {
+            Sign::Positive
+        } else {
+            Sign::Negative
+        };
+        self.trim_zeros()
     }
 }
 
@@ -191,12 +196,11 @@ fn add_mag(mut a_digits: Vec<u8>, b_digits: &Vec<u8>) -> Vec<u8> {
 }
 
 fn gradeschool_multiply(a_digits: &[u8], b_digits: &[u8]) -> Vec<u8> {
-    let res = a_digits
+    a_digits
         .iter()
         .enumerate()
         .map(|(i, c)| exp(scale(Vec::<u8>::from(b_digits), *c), i))
-        .fold(vec![0], |a, v| add_mag(a, &v));
-    trim_zeros(res)
+        .fold(vec![0], |a, v| add_mag(a, &v))
 }
 
 fn scale(mut digits: Vec<u8>, c: u8) -> Vec<u8> {
@@ -231,27 +235,33 @@ const KARATSUBA_CUTOFF: usize = 20;
 // Initial step of karatsuba multiplication requires generation
 // of terms from multiplication of splits of input.
 fn multiply(a_digits: &[u8], b_digits: &[u8]) -> Vec<u8> {
+    let ret;
     let min_len = cmp::min(a_digits.len(), b_digits.len());
     if min_len < KARATSUBA_CUTOFF {
-        return gradeschool_multiply(a_digits, b_digits);
+        ret = gradeschool_multiply(a_digits, b_digits);
+    } else {
+        let split = min_len / 2;
+        let a0 = Vec::<u8>::from(&a_digits[..split]); // Lower order
+        let a1 = Vec::<u8>::from(&a_digits[split..]); // Higher order
+        let b0 = Vec::<u8>::from(&b_digits[..split]); // Lower order
+        let b1 = Vec::<u8>::from(&b_digits[split..]); // Higher order
+
+        println!(
+            "Calling multiply with a: {:?} b: {:?}\na0: {:?} a1: {:?}\nb0: {:?} b1: {:?}\n",
+            a_digits, b_digits, a0, a1, b0, b1
+        );
+        println!("add_mag(b0, b1): {:?}", add_mag(b0.clone(), &b1));
+
+        let z0 = multiply(&a0, &b0);
+        let z2 = multiply(&a1, &b1);
+        let (z1, mag_order) = diff_mag(
+            multiply(&add_mag(a0, &a1), &add_mag(b0, &b1)),
+            &add_mag(z0.clone(), &z2),
+        );
+        assert_eq!(mag_order, MagnitudeOrder::First);
+        ret = add_mag(add_mag(exp(z2, 2 * split), &exp(z1, split)), &z0);
     }
-    let split = min_len / 2;
-    let a0 = Vec::<u8>::from(&a_digits[..split]); // Lower order
-    let a1 = Vec::<u8>::from(&a_digits[split..]); // Higher order
-    let b0 = Vec::<u8>::from(&b_digits[..split]); // Lower order
-    let b1 = Vec::<u8>::from(&b_digits[split..]); // Higher order
-
-    println!("Calling multiply with a: {:?} b: {:?}\na0: {:?} a1: {:?}\nb0: {:?} b1: {:?}\n", a_digits, b_digits, a0, a1, b0, b1);
-    println!("add_mag(b0, b1): {:?}", add_mag(b0.clone(), &b1));
-
-    let z0 = multiply(&a0, &b0);
-    let z2 = multiply(&a1, &b1);
-    let (z1, mag_order) = diff_mag(
-        multiply(&add_mag(a0, &a1), &add_mag(b0, &b1)),
-        &add_mag(z0.clone(), &z2),
-    );
-    assert_eq!(mag_order, MagnitudeOrder::First);
-    add_mag(add_mag(exp(z2, 2*split), &exp(z1, split)), &z0)
+    trim_zeros(ret)
 }
 
 // Compute the difference in magnitude of a_digits and b_digits.  Return
@@ -355,7 +365,7 @@ mod tests {
         let a = vec![6];
         let b = vec![5];
         let res = add_mag(a, &b);
-        assert_eq!(res, vec![1,1]);
+        assert_eq!(res, vec![1, 1]);
     }
 
     #[test]
@@ -400,14 +410,6 @@ mod tests {
         let b = vec![3, 2, 1];
         let res = gradeschool_multiply(&a, &b);
         assert_eq!(res, vec![3, 5, 3, 7, 4, 2]);
-    }
-
-    #[test]
-    fn gradeschool_zero() {
-        let a = vec![1, 1, 0, 2];
-        let b = vec![0];
-        let res = gradeschool_multiply(&a, &b);
-        assert_eq!(res, vec![0]);
     }
 
     #[test]
@@ -547,6 +549,15 @@ mod tests {
         let a = vec![4, 3, 2, 1];
         let b = vec![8, 7, 6, 5];
         let res = multiply(&a, &b);
-        assert_eq!(res, vec![2,5,6,6,0,0,7]);
+        assert_eq!(res, vec![2, 5, 6, 6, 0, 0, 7]);
     }
+
+    #[test]
+    fn multiply_zero() {
+        let a = vec![1, 1, 0, 2];
+        let b = vec![0];
+        let res = multiply(&a, &b);
+        assert_eq!(res, vec![0]);
+    }
+
 }
