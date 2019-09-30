@@ -1,13 +1,15 @@
-// NxN square of [1-N2] digits.
+// NxN square of [1-N2] digit permutation.
 #[derive(Clone, Copy)]
 pub struct Square {
     digits : [u32; Square::N2 as usize],
+    // Bitmask of values seen so far.
     seen: u64
 }
 
 impl Square {
     const N: u32 = 3;
     const N2: u32 = Square::N*Square::N;
+    // Magic constant.
     const K: u32 = Square::N*(Square::N2+1)/2;
 
     pub fn new() -> Square {
@@ -31,19 +33,13 @@ impl Square {
 
     // Clear a digit from a position at ind.
     fn clear(&mut self, ind: usize) -> bool {
-        self.print_digits();
         if self.digits[ind] == 0 {
             return false;
         }
         let mask: u64 = !(1 << self.digits[ind]-1);
         self.digits[ind] = 0;
         self.seen &= mask;
-        self.print_digits();
         true
-    }
-
-    fn empty(&self) -> bool {
-        self.seen == 0
     }
 
     // Verify all values occur once and fall in [1,N2].
@@ -94,12 +90,30 @@ impl Square {
         true
     }
 
-    pub fn print_digits(&self) {
-        println!("square:");
-        println!("{:?}", &self.digits[0..3]);
-        println!("{:?}", &self.digits[3..6]);
-        println!("{:?}", &self.digits[6..9]);
-        println!("{:0b}", self.seen as u16);
+    // L1 distance to another square.
+    fn distance(&self, other: &Square) -> u32 {
+        fn abs_diff(a: u32, b: u32) -> u32 {
+            if a > b {
+                a-b
+            } else {
+                b-a
+            }
+        }
+        self.digits
+            .iter()
+            .zip(other.digits.iter())
+            .map(|(a, b)| {abs_diff(*a,*b)})
+            .sum()
+    }
+
+    // Compute the minimum L1 distance between a 3x3 Square
+    // and the nearest magic square
+    fn min_distance(&self) -> u32 {
+        assert_eq!(Square::N, 3);
+        find_magic().iter()
+                    .map(|x| {self.distance(&x)})
+                    .min()
+                    .unwrap()
     }
 }
 
@@ -134,6 +148,7 @@ pub fn find_magic() -> Vec<Square> {
     fill_edge(&mut square, 0, &mut magic_squares);
     magic_squares
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -179,5 +194,31 @@ mod tests {
     fn test_find_magic() {
         let squares = find_magic();
         assert_eq!(squares.len(), 8)
+    }
+
+    #[test]
+    fn test_distance() {
+        //let digits : [u32; 9] = [2, 7, 6, 9, 5, 1, 4, 3, 8];
+        let square = Square { digits: [1,2,3,4,5,6,7,8,9],
+                              seen: 511 };
+        let other = Square { digits: [9,8,7,6,5,4,3,2,1],
+                              seen: 511 };
+        assert_eq!(square.distance(&other), 40);
+    }
+
+    #[test]
+    fn test_zero_distance() {
+        let square = Square { digits: [1,2,3,4,5,6,7,8,9],
+                              seen: 511 };
+        let other = Square { digits: [1,2,3,4,5,6,7,8,9],
+                              seen: 511 };
+        assert_eq!(square.distance(&other), 0);
+    }
+
+    #[test]
+    fn test_min_distance() {
+        let square = Square { digits: [4,8,2,4,5,7,6,1,6],
+                              seen: 511 };
+        assert_eq!(square.min_distance(), 4);
     }
 }
