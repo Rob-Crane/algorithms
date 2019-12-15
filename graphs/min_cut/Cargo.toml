@@ -5,3 +5,4 @@ authors = ["rob-crane <28930454+Rob-Crane@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
+rand = "0.7.2"

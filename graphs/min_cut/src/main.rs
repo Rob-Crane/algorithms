@@ -1,5 +1,7 @@
 mod min_cut {
     use std::collections::{HashMap, HashSet};
+    extern crate rand;
+    use rand::{rngs, thread_rng, Rng};
     #[derive(Debug)]
     pub struct Edge {
         nid1: u64,
@@ -20,6 +22,9 @@ mod min_cut {
         pub fn remove(&mut self, eid: u64) {
           assert!(self.eids.remove(&eid));
         }
+        pub fn num_edges(&self) -> usize {
+            self.eids.len()
+        }
     }
 
     #[derive(Debug)]
@@ -36,6 +41,8 @@ mod min_cut {
                 next_eid: 0,
             };
         }
+        // Add an edge to the Graph.  Create Nodes if
+        // they don't exist.
         pub fn add(&mut self, nid1: u64, nid2: u64) {
             assert_ne!(nid1, nid2);
             self.add_edge(nid1, nid2);
@@ -45,7 +52,6 @@ mod min_cut {
         }
 
         fn add_edge(&mut self, nid1: u64, nid2: u64) {
-            // Add Edge.
             let edge = Edge { nid1, nid2 };
             if self.edges.insert(self.next_eid, edge).is_some() {
                 panic!("Already contains edge with ID {}", self.next_eid);
@@ -53,8 +59,7 @@ mod min_cut {
         }
 
         fn maybe_add_node(&mut self, nid: u64) {
-            let opt_n = self.nodes.get_mut(&nid);
-            if let Some(n) = opt_n {
+            if let Some(n) = self.nodes.get_mut(&nid) {
                 n.add(self.next_eid);
             } else {
                 let mut n = Node::new();
@@ -63,18 +68,36 @@ mod min_cut {
             }
         }
 
-        // Merge node 2 of edge into node 1.
+
+        fn run_karger(&mut self) {
+            let mut rng = rand::thread_rng();
+            while self.nodes.len() > 2 {
+                 self.merge_random(&mut rng);
+            }
+        }
+
+        // Merge random edge.
+        fn merge_random(&mut self, rng: &mut rngs::ThreadRng) {
+            let k = rng.gen_range(0, self.edges.len());
+            let eid = *self.edges.keys().nth(k).unwrap();
+            self.merge_edge(eid);
+        }
+
+        // Merge node 2 of edge into node 1.  All edges attached to
+        // node are attached to node 1.  Edges between node 1 and 2
+        // are removed.
         pub fn merge_edge(&mut self, eid: u64) {
             let e = &self.edges.get(&eid).unwrap();
             let nid1 = e.nid1;
             let nid2 = e.nid2;
             // Redirect second node's edges to first.
             let n2 = &self.nodes.get(&nid2).unwrap();
-            let mut eids_to_add = Vec::<u64>::new();
-            let mut eids_to_del = Vec::<u64>::new();
+            // Track edges to add or remove from Node 1 after Node 2's edges
+            // have been redirected or removed.
+            let mut eids_to_add = Vec::<u64>::with_capacity(n2.eids.len());
+            let mut eids_to_del = Vec::<u64>::with_capacity(n2.eids.len());
             for n2_eid in n2.eids.iter() {
                 if Graph::redirect_edge_or_drop(&mut self.edges, *n2_eid, nid2, nid1) {
-                    // Add edge ID to node.
                     eids_to_add.push(*n2_eid);
                 } else {
                     eids_to_del.push(*n2_eid);
@@ -89,6 +112,9 @@ mod min_cut {
             for e in eids_to_del {
                 n.remove(e);
             }
+            // Delete the unmerged node.  Not strictly necessary for algorithm
+            // but simplifies unit testing.
+            self.nodes.remove(&nid2);
         }
 
         // Redirects an edge's endpoints or drops it from edge map
@@ -137,16 +163,31 @@ mod tests {
         assert_eq!(g.nodes.len(), 3);
         assert_eq!(g.edges.len(), 3);
     }
+    #[test]
+    fn test_merge_to_one_edge() {
+        let mut g = min_cut::Graph::new();
+        g.add(1, 2);
+        g.add(2, 3);
+        g.merge_edge(1);
+        for n in g.nodes.values() {
+            assert_eq!(n.num_edges(), 1);
+        }
+        assert_eq!(g.nodes.len(), 2);
+        assert_eq!(g.edges.len(), 1);
+    }
 
     #[test]
-    fn test_merge() {
+    fn test_merge_to_two_edge() {
         let mut g = min_cut::Graph::new();
         g.add(1, 2);
         g.add(2, 3);
         g.add(1, 3);
-        println!("Edges: {:?}", g.edges);
         g.merge_edge(2);
-        println!("Edges: {:?}", g.edges);
+        for n in g.nodes.values() {
+            assert_eq!(n.num_edges(), 2);
+        }
+        assert_eq!(g.nodes.len(), 2);
+        assert_eq!(g.edges.len(), 2);
     }
 
 }
