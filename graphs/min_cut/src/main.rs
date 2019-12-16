@@ -2,32 +2,33 @@ mod min_cut {
     use std::collections::{HashMap, HashSet};
     extern crate rand;
     use rand::{rngs, thread_rng, Rng};
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Edge {
         nid1: u64,
         nid2: u64,
     }
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Node {
         eids: HashSet<u64>,
     }
-
     impl Node {
         pub fn new() -> Node {
-            return Node {eids : HashSet::new()};
+            return Node {
+                eids: HashSet::new(),
+            };
         }
         pub fn add(&mut self, eid: u64) {
-          assert!(self.eids.insert(eid));
+            assert!(self.eids.insert(eid));
         }
         pub fn remove(&mut self, eid: u64) {
-          assert!(self.eids.remove(&eid));
+            assert!(self.eids.remove(&eid));
         }
         pub fn num_edges(&self) -> usize {
             self.eids.len()
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Graph {
         pub nodes: HashMap<u64, Node>,
         pub edges: HashMap<u64, Edge>,
@@ -68,12 +69,12 @@ mod min_cut {
             }
         }
 
-
-        fn run_karger(&mut self) {
+        pub fn run_karger(&mut self) -> usize {
             let mut rng = rand::thread_rng();
             while self.nodes.len() > 2 {
-                 self.merge_random(&mut rng);
+                self.merge_random(&mut rng);
             }
+            return self.edges.len();
         }
 
         // Merge random edge.
@@ -103,9 +104,7 @@ mod min_cut {
                     eids_to_del.push(*n2_eid);
                 }
             }
-            let n = self.nodes
-                .get_mut(&nid1)
-                .unwrap();
+            let n = self.nodes.get_mut(&nid1).unwrap();
             for e in eids_to_add {
                 n.add(e);
             }
@@ -146,8 +145,44 @@ mod min_cut {
         }
     }
 }
+use std::cmp;
+use std::io::{self, Read};
+// Read stdin to a string.
+fn get_stdin() -> io::Result<String> {
+    let mut buffer = String::new();
+    io::stdin().read_to_string(&mut buffer)?;
+    Ok(buffer)
+}
+
 fn main() {
-    println!("Hello, world!");
+    let input = get_stdin().unwrap();
+    let mut g_buffer = min_cut::Graph::new();
+    for l in input.lines() {
+        let mut opt_from = None;
+        for t in l.split_whitespace() {
+            if let Some(from) = opt_from {
+                let to = t.parse::<u64>().unwrap();
+                if to > from {
+                    g_buffer.add(from, to);
+                }
+            } else {
+                opt_from = Some(t.parse::<u64>().unwrap());
+            }
+        }
+    }
+    println!(
+        "Created graph with {} nodes and {} edges",
+        g_buffer.nodes.len(),
+        g_buffer.edges.len()
+    );
+    let num_trials = 100;
+    let mut min_so_far = g_buffer.edges.len();
+    for i in 1..num_trials+1 {
+        let mut g = g_buffer.clone();
+        min_so_far = cmp::min(min_so_far, g.run_karger());
+        println!("Completed trial {} of {}", i, num_trials);
+    }
+    println!("Smallest cut found has {} edges.", min_so_far);
 }
 
 #[cfg(test)]
