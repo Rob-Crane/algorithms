@@ -114,7 +114,6 @@ impl<'a> KosarajuFirstPass<'a> {
         self.ordering.iter().rev()
     }
     fn dfs(&mut self, nid_start: u64) {
-
         let mut to_process = Vec::<Vec<u64>>::new();
         to_process.push(vec![nid_start]);
         self.visited.mark_visited(nid_start);
@@ -142,13 +141,6 @@ impl<'a> KosarajuFirstPass<'a> {
 
             }
         }
-        //self.visited.mark_visited(nid_start);
-        //for &n in self.edge_map.nids_to(nid_start).unwrap() {
-            //if !self.visited.is_visited(n) {
-                //self.dfs(n);
-            //}
-        //}
-        //self.ordering.push(nid_start);
     }
 }
 
@@ -189,7 +181,7 @@ impl<'a, 'b> KosarajuSecondPass<'a>  {
         };
         for &nid_source in ordering {
             if !ksp.visited.is_visited(nid_source) {
-                ksp.dfs(nid_source, nid_source);
+                ksp.dfs(nid_source);
             }
         }
         ksp
@@ -201,13 +193,20 @@ impl<'a, 'b> KosarajuSecondPass<'a>  {
         ret
     }
 
-    fn dfs(&mut self, nid: u64, nid_source: u64) {
-        self.visited.mark_visited(nid);
-        self.scc_counts.increment(nid_source);
-        for &n in self.edge_map.nids_from(nid).unwrap() {
-            if !self.visited.is_visited(n) {
-                self.dfs(n, nid_source);
+    fn dfs(&mut self, nid_source: u64) {
+        let mut to_visit : Vec<u64> = Vec::<u64>::new();
+        to_visit.push(nid_source);
+        self.visited.mark_visited(nid_source);
+        while !to_visit.is_empty() {
+            let nid = to_visit.pop().unwrap();
+            self.scc_counts.increment(nid_source);
+            for &n in self.edge_map.nids_from(nid).unwrap() {
+                if !self.visited.is_visited(n) {
+                    self.visited.mark_visited(n);
+                    to_visit.push(n);
+                }
             }
+
         }
     }
 }
