@@ -39,6 +39,8 @@ impl EdgeMap {
             edges: HashMap::<u64, EdgeList>::new(),
         }
     }
+
+    // Add directed edge to graph.
     pub fn add(&mut self, nid_from: u64, nid_to: u64) {
         (*self.edges.entry(nid_from).or_insert(EdgeList::new())).add_from(nid_to);
         (*self.edges.entry(nid_to).or_insert(EdgeList::new())).add_to(nid_from);
@@ -63,6 +65,7 @@ impl EdgeMap {
         self.edges.keys()
     }
 
+    // The number of nodes.
     pub fn len(&self) -> usize {
         self.edges.len()
     }
@@ -80,6 +83,7 @@ impl VisitedMap {
         }
     }
 
+    // Mark a node visited.  Panics if node previously visited.
     pub fn mark_visited(&mut self, nid: u64) {
         let old = self.visited.insert(nid, true).unwrap();
         assert!(!old); // Assert node wasn't previously visited.
@@ -97,6 +101,8 @@ pub struct KosarajuFirstPass<'a> {
 }
 
 impl<'a> KosarajuFirstPass<'a> {
+    // Complete the first pass traversal of the "reversed" graph to create
+    // an ordering.
     pub fn new(edge_map: &'a EdgeMap) -> KosarajuFirstPass {
         let mut kfp = KosarajuFirstPass {
             edge_map,
@@ -110,16 +116,39 @@ impl<'a> KosarajuFirstPass<'a> {
         }
         kfp
     }
+    // Get the outer loop ordering for the second pass traversal.
     pub fn second_pass_ordering(&self) -> impl Iterator<Item = &u64> {
         self.ordering.iter().rev()
     }
+
+    // Conduct a depth first traversal starting from given.
     fn dfs(&mut self, nid_start: u64) {
+
+        // To overcome stack limitations of recursive implementation,
+        // depth first traversal is iterative.  Traversal uses
+        // a stack of stacks.  Each individual stack is the nodes
+        // which should be finished when that "branch" of the
+        // traversal is completed.  The node being processed
+        // is the top member of the stack.  If it has no children,
+        // it is "finished" followed by remaining nodes on stack.
+        // If it has children, the first child that is processed
+        // will be pushed on the outer stack first and so will
+        // be the last child processed.  That child inherits
+        // all of the parent's (and parent itself) to finish
+        // when it's "branch" is complete.
+
+        // Outer "stack of stacks".
         let mut to_process = Vec::<Vec<u64>>::new();
         to_process.push(vec![nid_start]);
         self.visited.mark_visited(nid_start);
         while !to_process.is_empty() {
+            // Get the top of outer stack.
             let mut descendents = to_process.pop().unwrap();
+            // Node being processed is top of current stack.
             let nid = *descendents.last().unwrap();
+            // Children of current node will be pushed onto outer stack.
+            // Track the location in outer stack of the first child
+            // seen since this will be last child processed.
             let mut first_child_ind : Option<usize> = None;
             for &n in self.edge_map.nids_to(nid).unwrap() {
                 if !self.visited.is_visited(n) {
@@ -127,14 +156,20 @@ impl<'a> KosarajuFirstPass<'a> {
                     if first_child_ind.is_none() {
                         first_child_ind = Some(to_process.len());
                     }
+                    // Push all the children on the outer stack.
                     to_process.push(vec![n]);
                 }
 
             }
+            // Replace the first child seen with all the nodes
+            // that should be finished when this 'branch' is
+            // complete.
             if let Some(ind) = first_child_ind {
                 descendents.push(to_process[ind].pop().unwrap());
                 to_process[ind] = descendents;
             } else {
+                // Node has no children, put that child on top
+                // of parent's stack of nodes to finish.
                 while !descendents.is_empty() {
                     self.ordering.push(descendents.pop().unwrap());
                 }
@@ -173,6 +208,8 @@ pub struct KosarajuSecondPass<'a> {
 
 impl<'a, 'b> KosarajuSecondPass<'a>  {
 
+    // Conduct the second pass of the Kosaraju algorithm to compute the
+    // sizes of the strongly connected components.
     pub fn new<T: Iterator<Item = &'b u64>> (edge_map: &'a EdgeMap, ordering: T) -> KosarajuSecondPass {
         let mut ksp = KosarajuSecondPass{
             edge_map,
@@ -187,6 +224,7 @@ impl<'a, 'b> KosarajuSecondPass<'a>  {
         ksp
     }
 
+    // Get the sizes of the SCCs of the garph in reverse order of size.
     pub fn reverse_sorted_counts(&self) -> Vec<usize> {
         let mut ret : Vec<usize> = self.scc_counts.counts().map(|x| *x).collect();
         ret.sort_unstable_by(|a, b| b.cmp(a));
@@ -194,6 +232,8 @@ impl<'a, 'b> KosarajuSecondPass<'a>  {
     }
 
     fn dfs(&mut self, nid_source: u64) {
+        // Conduct an iterative depth-first traversal and increment
+        // count of nodes visisted from origin node.
         let mut to_visit : Vec<u64> = Vec::<u64>::new();
         to_visit.push(nid_source);
         self.visited.mark_visited(nid_source);
