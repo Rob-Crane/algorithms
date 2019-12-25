@@ -113,14 +113,42 @@ impl<'a> KosarajuFirstPass<'a> {
     pub fn second_pass_ordering(&self) -> impl Iterator<Item = &u64> {
         self.ordering.iter().rev()
     }
-    fn dfs(&mut self, nid: u64) {
-        self.visited.mark_visited(nid);
-        for &n in self.edge_map.nids_to(nid).unwrap() {
-            if !self.visited.is_visited(n) {
-                self.dfs(n);
+    fn dfs(&mut self, nid_start: u64) {
+
+        let mut to_process = Vec::<Vec<u64>>::new();
+        to_process.push(vec![nid_start]);
+        self.visited.mark_visited(nid_start);
+        while !to_process.is_empty() {
+            let mut descendents = to_process.pop().unwrap();
+            let nid = *descendents.last().unwrap();
+            let mut first_child_ind : Option<usize> = None;
+            for &n in self.edge_map.nids_to(nid).unwrap() {
+                if !self.visited.is_visited(n) {
+                    self.visited.mark_visited(n);
+                    if first_child_ind.is_none() {
+                        first_child_ind = Some(to_process.len());
+                    }
+                    to_process.push(vec![n]);
+                }
+
+            }
+            if let Some(ind) = first_child_ind {
+                descendents.push(to_process[ind].pop().unwrap());
+                to_process[ind] = descendents;
+            } else {
+                while !descendents.is_empty() {
+                    self.ordering.push(descendents.pop().unwrap());
+                }
+
             }
         }
-        self.ordering.push(nid);
+        //self.visited.mark_visited(nid_start);
+        //for &n in self.edge_map.nids_to(nid_start).unwrap() {
+            //if !self.visited.is_visited(n) {
+                //self.dfs(n);
+            //}
+        //}
+        //self.ordering.push(nid_start);
     }
 }
 
