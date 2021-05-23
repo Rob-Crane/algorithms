@@ -26,9 +26,9 @@ MRIND(b) == RIND(N/2)
 ### Half List Elimination
 * Want to pick elements `i`, `j` so that `i+j = N/2`.
 * Such pairs will exist for every element in the shorter list and all elements in the longer list s.t. `for element i of shorter list N/2-i <= [length of shorter list]`.
-* Strategy is to choose "pivots" from smaller list which are the middle element of remaining interval and choose complementary `N/2` pivot from longer list. This strategy will terminate when one of the intervals has length `<=2`.
+* Strategy is to choose "pivots" from smaller list which are the middle element of remaining interval and choose complementary `N/2` pivot from longer list (which will divide it roughtly in half). This strategy will terminate when the smaller list has an interval of length `<=2`.
 
 ### Final Step:
-* Half-list elimination ends when one of the two intervals has length `<=2`. Task is to find the `N/2` value from a length `<=2` list and another list of arbitrary size.
+* Half-list elimination ends when smaller list interval is length `<=2`. Task is to find the `N/2` value from a length `<=2` list and another list of arbitrary size.
 * Want to find the median of the total set from the intervals of possible values. If `k` values have been eliminated from the lower ranges of the two input lists, then the task is to find the `N/2-k`th order statistic from the intervals.
 * This can be accomplished in constant time by starting with the `k`th value from the arbitrary size interval and then examining the one or two values in the other interval to see if they fall before or after the `k`th value of the longer list.
